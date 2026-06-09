@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import openpyxl
 
 app = FastAPI()
-FILE_NAME = "database.xlsx"
+FILE_NAME = "Magnets.xlsx"
 
 class RowData(BaseModel):
     name: str
