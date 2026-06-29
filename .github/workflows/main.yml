@@ -1,53 +1,62 @@
-name: Extract Zip into Repo
+name: Unzip to Root and Clean
 
 on:
   push:
     branches:
-      - main # Change this to 'master' if that is your main branch name
-  workflow_dispatch: # Adds a manual "Run Workflow" button to force run it anytime
+      - main # Change to 'master' if your default branch is master
+  workflow_dispatch: # Gives you a manual trigger button in GitHub Actions dashboard
 
 permissions:
-  contents: write # Double-ensures the runner bot has authorization to push code
+  contents: write
 
 jobs:
-  unzip-and-commit:
+  extract-flat:
     runs-on: ubuntu-latest
     steps:
-      # 1. Fetch your repository
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Safely find, unzip, and clean the archive
-      - name: Unzip File
+      - name: Unzip and Flatten to Root
         run: |
-          # Look for any zip file in the root folder
+          # 1. Locate the uploaded zip file
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
           
           if [ -z "$ZIP_FILE" ]; then
-            echo "❌ No zip file found in the root directory. Skipping extract."
-            exit 0
+            echo "❌ No zip file found in the root directory."
+            exit 1
           fi
           
-          echo "📦 Found file: $ZIP_FILE. Extracting..."
+          echo "📦 Unzipping $ZIP_FILE directly..."
           
-          # Unzip and automatically overwrite existing files without prompting
-          unzip -o "$ZIP_FILE"
+          # Create a temporary staging area to look inside the zip folder structure
+          mkdir tmp_extract
+          unzip -o "$ZIP_FILE" -d tmp_extract
           
-          # Delete the zip file so it doesn't clutter your GitHub history
-          rm "$ZIP_FILE"
+          # 2. Automatically flatten nested folders if they exist
+          # Checks if there is exactly 1 folder inside the zip wrapping all your project contents
+          if [ $(ls -1 tmp_extract | wc -l) -eq 1 ] && [ -d tmp_extract/* ]; then
+            echo "⚠️ Detected a wrapper folder inside the zip. Flattening contents to root..."
+            mv tmp_extract/*/* ./ 2>/dev/null || true
+            mv tmp_extract/*/.* ./ 2>/dev/null || true # Move hidden files like .gitignore
+          else
+            echo "✅ Zip contents are flat. Moving directly to root..."
+            mv tmp_extract/* ./ 2>/dev/null || true
+            mv tmp_extract/.* ./ 2>/dev/null || true
+          fi
+          
+          # 3. Clean up temporary directory and the original zip file
+          rm -rf tmp_extract
 
-      # 3. Securely commit and push extracted React source files back to GitHub
-      - name: Commit Extracted Files
+      - name: Commit and Push to Branch
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.email "41898282+github-actions[bot]@://github.com"
           
           git add .
           
-          # Prevent failing if there are zero differences in code
           if git diff-index --quiet HEAD; then
-            echo "ℹ️ No new code changes detected from the zip file."
+            echo "ℹ️ No changes detected. Root directory matches zip content."
           else
-            git commit -m "Automated unzip: Extracted React app source files"
+            git commit -m "Automated Unzip: Flattened source files to root for Vercel deployment"
             git push origin HEAD:${{ github.ref }}
           fi
