@@ -2,51 +2,52 @@ name: Extract Zip into Repo
 
 on:
   push:
-    paths:
-      - '*.zip' # Triggers automatically whenever a .zip file is uploaded to the root directory
+    branches:
+      - main # Change this to 'master' if that is your main branch name
+  workflow_dispatch: # Adds a manual "Run Workflow" button to force run it anytime
 
 permissions:
-  contents: write # Allows the workflow to push the extracted files back to your repo
+  contents: write # Double-ensures the runner bot has authorization to push code
 
 jobs:
   unzip-and-commit:
     runs-on: ubuntu-latest
     steps:
-      # 1. Check out your repository
+      # 1. Fetch your repository
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Extract the zip file and delete the archive
+      # 2. Safely find, unzip, and clean the archive
       - name: Unzip File
         run: |
-          # Find the name of the uploaded zip file
-          ZIP_FILE=$(ls *.zip | head -n 1)
+          # Look for any zip file in the root folder
+          ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
           
           if [ -z "$ZIP_FILE" ]; then
-            echo "No zip file found in the root directory."
+            echo "❌ No zip file found in the root directory. Skipping extract."
             exit 0
           fi
           
-          echo "Extracting $ZIP_FILE..."
+          echo "📦 Found file: $ZIP_FILE. Extracting..."
           
-          # Extract directly into the current directory
+          # Unzip and automatically overwrite existing files without prompting
           unzip -o "$ZIP_FILE"
           
-          # Remove the zip file so it isn't tracked in git history
+          # Delete the zip file so it doesn't clutter your GitHub history
           rm "$ZIP_FILE"
 
-      # 3. Commit and push the extracted files back to GitHub
+      # 3. Securely commit and push extracted React source files back to GitHub
       - name: Commit Extracted Files
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.user.email "41898282+github-actions[bot]@://github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
           git add .
           
-          # Check if there are actual changes to commit to avoid workflow errors
+          # Prevent failing if there are zero differences in code
           if git diff-index --quiet HEAD; then
-            echo "No changes detected from the zip file."
+            echo "ℹ️ No new code changes detected from the zip file."
           else
-            git commit -m "Automated unzip: Extracted files from uploaded archive"
-            git push
+            git commit -m "Automated unzip: Extracted React app source files"
+            git push origin HEAD:${{ github.ref }}
           fi
