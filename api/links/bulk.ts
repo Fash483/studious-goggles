@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ensureSchema, getSql, rowToLink, sendJson } from "../_db";
+import { neon } from "@neondatabase/serverless";
 
 function parseBody(req: VercelRequest): unknown {
   if (typeof req.body === "string") {
@@ -8,15 +8,25 @@ function parseBody(req: VercelRequest): unknown {
   return req.body ?? null;
 }
 
+function toLink(r: any) {
+  return {
+    id: String(r.id),
+    title: r.title ?? "",
+    magnet: r.magnet ?? "",
+    created_date: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+  };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    await ensureSchema();
-    const sql = getSql();
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error("DATABASE_URL is not set");
+    const sql = neon(url);
 
     if (req.method === "POST") {
       const raw = parseBody(req);
       const records: Array<{ title?: string; magnet?: string }> = Array.isArray(raw) ? raw : [];
-      if (!records.length) return sendJson(res, 200, { list: [] });
+      if (!records.length) return res.status(200).json({ list: [] });
       const titles = records.map((r) => String(r.title ?? "").slice(0, 1000));
       const magnets = records.map((r) => String(r.magnet ?? "").slice(0, 4000));
       const rows = await sql`
@@ -24,22 +34,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         SELECT * FROM UNNEST(${titles}::text[], ${magnets}::text[])
         RETURNING id, title, magnet, created_at
       `;
-      return sendJson(res, 201, { list: rows.map(rowToLink) });
+      return res.status(201).json({ list: rows.map(toLink) });
     }
-
     if (req.method === "DELETE") {
       const raw = parseBody(req);
       const rawObj = raw !== null && !Array.isArray(raw) && typeof raw === "object" ? raw as Record<string, unknown> : {};
       const ids: Array<number | string> = Array.isArray(rawObj.ids) ? rawObj.ids : [];
       const numIds = ids.map((v) => Number(v)).filter((n) => Number.isFinite(n));
-      if (!numIds.length) return sendJson(res, 200, { ok: true, deleted: 0 });
+      if (!numIds.length) return res.status(200).json({ ok: true, deleted: 0 });
       await sql`DELETE FROM links WHERE id = ANY(${numIds}::bigint[])`;
-      return sendJson(res, 200, { ok: true, deleted: numIds.length });
+      return res.status(200).json({ ok: true, deleted: numIds.length });
     }
-
-    res.setHeader("Allow", "POST, DELETE");
-    return sendJson(res, 405, { error: "Method not allowed" });
+    return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
-    return sendJson(res, 500, { error: e?.message || "Server error" });
+    return res.status(500).json({ error: e?.message || "Server error" });
   }
-}
+        }
