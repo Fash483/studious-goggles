@@ -1,0 +1,52 @@
+name: Extract Zip into Repo
+
+on:
+  push:
+    paths:
+      - '*.zip' # Triggers automatically whenever a .zip file is uploaded to the root directory
+
+permissions:
+  contents: write # Allows the workflow to push the extracted files back to your repo
+
+jobs:
+  unzip-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Check out your repository
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Extract the zip file and delete the archive
+      - name: Unzip File
+        run: |
+          # Find the name of the uploaded zip file
+          ZIP_FILE=$(ls *.zip | head -n 1)
+          
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No zip file found in the root directory."
+            exit 0
+          fi
+          
+          echo "Extracting $ZIP_FILE..."
+          
+          # Extract directly into the current directory
+          unzip -o "$ZIP_FILE"
+          
+          # Remove the zip file so it isn't tracked in git history
+          rm "$ZIP_FILE"
+
+      # 3. Commit and push the extracted files back to GitHub
+      - name: Commit Extracted Files
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.user.email "41898282+github-actions[bot]@://github.com"
+          
+          git add .
+          
+          # Check if there are actual changes to commit to avoid workflow errors
+          if git diff-index --quiet HEAD; then
+            echo "No changes detected from the zip file."
+          else
+            git commit -m "Automated unzip: Extracted files from uploaded archive"
+            git push
+          fi
