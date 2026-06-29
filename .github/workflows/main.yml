@@ -1,62 +1,54 @@
-name: Unzip to Root and Clean
+name: Flatten Magnet Vault
 
 on:
   push:
-    branches:
-      - main # Change to 'master' if your default branch is master
-  workflow_dispatch: # Gives you a manual trigger button in GitHub Actions dashboard
+    paths:
+      - 'magnet_vault/**' # Triggers automatically when anything inside magnet_vault changes
+  workflow_dispatch: # Allows you to run it manually via the Actions tab
 
 permissions:
-  contents: write
+  contents: write # Needed to commit and push changes back to your repo
 
 jobs:
-  extract-flat:
+  flatten:
     runs-on: ubuntu-latest
     steps:
+      # 1. Pull down the repository
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Unzip and Flatten to Root
+      # 2. Safely move everything to root and clear the folder
+      - name: Move Files to Root
         run: |
-          # 1. Locate the uploaded zip file
-          ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
-          
-          if [ -z "$ZIP_FILE" ]; then
-            echo "❌ No zip file found in the root directory."
-            exit 1
-          fi
-          
-          echo "📦 Unzipping $ZIP_FILE directly..."
-          
-          # Create a temporary staging area to look inside the zip folder structure
-          mkdir tmp_extract
-          unzip -o "$ZIP_FILE" -d tmp_extract
-          
-          # 2. Automatically flatten nested folders if they exist
-          # Checks if there is exactly 1 folder inside the zip wrapping all your project contents
-          if [ $(ls -1 tmp_extract | wc -l) -eq 1 ] && [ -d tmp_extract/* ]; then
-            echo "⚠️ Detected a wrapper folder inside the zip. Flattening contents to root..."
-            mv tmp_extract/*/* ./ 2>/dev/null || true
-            mv tmp_extract/*/.* ./ 2>/dev/null || true # Move hidden files like .gitignore
+          if [ -d "magnet-vault" ]; then
+            echo "📁 Found magnet_vault folder. Moving all files outside..."
+            
+            # Move normal files and folders
+            mv magnet-vault/* ./ 2>/dev/null || true
+            
+            # Move hidden files (like .env or .gitignore) if they exist
+            mv magnet-vault/.* ./ 2>/dev/null || true
+            
+            # Remove the now empty folder
+            rm -rf magnet-vault
+            echo "✅ All files moved to root and magnet_vault folder removed."
           else
-            echo "✅ Zip contents are flat. Moving directly to root..."
-            mv tmp_extract/* ./ 2>/dev/null || true
-            mv tmp_extract/.* ./ 2>/dev/null || true
+            echo "❌ magnet_vault folder not found. Skipping move."
+            exit 0
           fi
-          
-          # 3. Clean up temporary directory and the original zip file
-          rm -rf tmp_extract
 
-      - name: Commit and Push to Branch
+      # 3. Save changes back to GitHub to trigger Vercel
+      - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@://github.com"
           
-          git add .
+          # Stage all modifications, new locations, and deletions
+          git add -A
           
           if git diff-index --quiet HEAD; then
-            echo "ℹ️ No changes detected. Root directory matches zip content."
+            echo "ℹ️ No changes detected. Root files are already up to date."
           else
-            git commit -m "Automated Unzip: Flattened source files to root for Vercel deployment"
+            git commit -m "Automated layout: Extracted contents of magnet-vault to root"
             git push origin HEAD:${{ github.ref }}
           fi
