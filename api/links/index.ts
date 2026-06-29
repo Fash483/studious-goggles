@@ -1,45 +1,42 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { neon } from "@neondatabase/serverless";
+import { ensureSchema, getSql, rowToLink, sendJson } from "../_db";
 
-async function getDb() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
-  const sql = neon(url);
-  await sql`CREATE TABLE IF NOT EXISTS links (
-    id BIGSERIAL PRIMARY KEY,
-    title TEXT NOT NULL DEFAULT '',
-    magnet TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
-  return sql;
-}
-
-function toLink(r: any) {
-  return {
-    id: String(r.id),
-    title: r.title ?? "",
-    magnet: r.magnet ?? "",
-    created_date: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
-  };
+function setCors(res: VercelResponse) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCors(res);
+
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") return res.status(204).end();
+
   try {
-    const sql = await getDb();
+    await ensureSchema();
+    const sql = getSql();
+
     if (req.method === "GET") {
       const rows = await sql`SELECT id, title, magnet, created_at FROM links ORDER BY created_at DESC LIMIT 10000`;
-      return res.status(200).json({ list: rows.map(toLink) });
+      return sendJson(res, 200, { list: rows.map(rowToLink) });
     }
+
     if (req.method === "POST") {
       const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
       const title = String(body.title ?? "").slice(0, 1000);
       const magnet = String(body.magnet ?? "").slice(0, 4000);
-      if (!magnet) return res.status(400).json({ error: "magnet required" });
-      const rows = await sql`INSERT INTO links (title, magnet) VALUES (${title}, ${magnet}) RETURNING id, title, magnet, created_at`;
-      return res.status(201).json(toLink(rows[0]));
+      if (!magnet) return sendJson(res, 400, { error: "magnet required" });
+      const rows = await sql`
+        INSERT INTO links (title, magnet) VALUES (${title}, ${magnet})
+        RETURNING id, title, magnet, created_at
+      `;
+      return sendJson(res, 201, rowToLink(rows[0]));
     }
-    return res.status(405).json({ error: "Method not allowed" });
+
+    res.setHeader("Allow", "GET, POST, OPTIONS");
+    return sendJson(res, 405, { error: "Method not allowed" });
   } catch (e: any) {
-    return res.status(500).json({ error: e?.message || "Server error" });
+    return sendJson(res, 500, { error: e?.message || "Server error" });
   }
-                                 }
+}
